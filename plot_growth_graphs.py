@@ -32,7 +32,7 @@ def sort_based_on_first_col(array):
 
 def plot_growth(world_health_array, measurements, num_of_displayed_months, y_label, x_label, output_file=None):
     # Plots
-    plt.figure()
+    # plt.figure()
     # fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2)
     fig, ax = plt.subplots()
     percentiles = ['2%', '5%', '10%', '25%', '50%', '75%', '90%', '95%', '98%']
@@ -40,8 +40,12 @@ def plot_growth(world_health_array, measurements, num_of_displayed_months, y_lab
     # Age vs weight
     for i in range(1, 10):
         linetype = 'c-' if i == 5 else 'c--'
-        x = world_health_array[:num_of_displayed_months + 1, 0]
-        y = world_health_array[:num_of_displayed_months + 1, i]
+        if num_of_displayed_months is None:
+            x = world_health_array[:, 0]
+            y = world_health_array[:, i]
+        else:
+            x = world_health_array[:num_of_displayed_months + 1, 0]
+            y = world_health_array[:num_of_displayed_months + 1, i]
         ax.plot(x, y, linetype, linewidth=0.8)
 
     ax.plot(measurements[:, 0], measurements[:, 1], 'b-')
@@ -49,8 +53,9 @@ def plot_growth(world_health_array, measurements, num_of_displayed_months, y_lab
 
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
-    ax.set_xlim([0, num_of_displayed_months])
-    ax.set_xticks(np.arange(0, num_of_displayed_months + 1))
+    if num_of_displayed_months is not None:
+        ax.set_xlim([0, num_of_displayed_months])
+        ax.set_xticks(np.arange(0, num_of_displayed_months + 1))
     ax.xaxis.set_minor_locator(AutoMinorLocator(4))
     ax.yaxis.set_minor_locator(AutoMinorLocator(10))
     # We change the fontsize of minor ticks label
@@ -60,8 +65,13 @@ def plot_growth(world_health_array, measurements, num_of_displayed_months, y_lab
     ax.grid(b=True, which='minor', color='0.8', linestyle='--')
 
     for i in range(1, 10):
-        x = world_health_array[num_of_displayed_months, 0]
-        y = world_health_array[num_of_displayed_months, i]
+        if num_of_displayed_months is None:
+            x = world_health_array[-1, 0]
+            y = world_health_array[-1, i]
+        else:
+            x = world_health_array[num_of_displayed_months, 0]
+            y = world_health_array[num_of_displayed_months, i]
+
         ax.text(x, y, percentiles[i-1], fontsize=7)
     fig = plt.gcf()
     plt.show()
@@ -73,7 +83,51 @@ def plot_growth(world_health_array, measurements, num_of_displayed_months, y_lab
         fig.savefig(output_file, dpi=100)
 
 
+def get_interpolated_value(time_val, times, values):
+    """
 
+    :param time_val: query value
+    :param times: all times in which the value has been measured
+    :param values: the values corresponding to the measurements
+    :return:
+    """
+
+    num_values = len(values)
+    assert time_val >= np.min(times)
+    assert time_val <= np.max(times)
+
+
+    sorted_idxs = np.argsort(times)
+    sorted_times = times[sorted_idxs]
+    sorted_values = values[sorted_idxs]
+
+    idx = np.sum(sorted_times <= time_val) - 1
+    higher_idx = idx + 1
+
+    lower_time = sorted_times[idx]
+    lower_value = sorted_values[idx]
+
+    if higher_idx > num_values - 1:  # if at the end of the vector
+        return lower_value, idx
+    else:
+        higher_time = sorted_times[higher_idx]
+        higher_value = sorted_values[higher_idx]
+
+        a = (time_val - lower_time)/(higher_time - lower_time)
+
+        assert 0 <= a <= 1
+
+        interpolated_value = lower_value * (1 - a) + higher_value * a
+        return interpolated_value, idx
+
+def get_multiple_interpolated_outputs(time_val_vector, times, values):
+    out_vector = []
+    for time in time_val_vector:
+        out, _ = get_interpolated_value(time, times, values)
+        out_vector.append(out)
+    out_vector = np.array(out_vector)
+
+    return out_vector
 
 
 
@@ -137,6 +191,23 @@ if __name__ == "__main__":
     weight_measurements = sort_based_on_first_col(np.array(weight_measurements))
     head_circumference_measurements = sort_based_on_first_col(np.array(head_circumference_measurements))
 
+    max_time = min(height_measurements[:, 0].max(), weight_measurements[:, 0].max(), head_circumference_measurements[:, 0].max())
+
+    # get height vs weight measurements
+    t = np.linspace(0, max_time, 100)
+    height_interpol_measurements = get_multiple_interpolated_outputs(time_val_vector=t, times=height_measurements[:, 0], values=height_measurements[:, 1])
+    weight_interpol_measurements = get_multiple_interpolated_outputs(time_val_vector=t, times=weight_measurements[:, 0], values=weight_measurements[:, 1])
+
+    height_weight_interpol_measurements = np.stack([height_interpol_measurements, weight_interpol_measurements], axis=1)
+    # out3 = get_multiple_interpolated_outputs(time_val_vector=t, times=head_circumference_measurements[:, 0], values=head_circumference_measurements[:, 1])
+    # plt.figure()
+    # plt.plot(t, out1)
+    # plt.plot(t, out2)
+    # plt.plot(t, out3)
+    # plt.show()
+
+
+
     # percentiles = ['2%', '5%', '10%', '25%', '50%', '75%', '90%', '95%', '98%']
 
     # Read age vs weight WHO data
@@ -188,6 +259,21 @@ if __name__ == "__main__":
         x_label='age [months]',
         output_file=os.path.join(output_dir, 'age_head_circ_growth.png')
     )
+
+    max_height = height_weight_interpol_measurements[:, 0].max()
+    _, num_of_datapoints = get_interpolated_value(max_height, length_weight_array[:, 0], length_weight_array[:, 0])
+
+    # weight vs height
+    plot_growth(
+        world_health_array=length_weight_array,
+        measurements=height_weight_interpol_measurements,
+        num_of_displayed_months=None, #int(num_of_datapoints) + 1,
+        y_label='weight [kg]',
+        x_label='length [cm]',
+        output_file=os.path.join(output_dir, 'weight_length_growth.png')
+    )
+
+
 
     # # Length vs weight
     # plt.subplot(2,2,4)
